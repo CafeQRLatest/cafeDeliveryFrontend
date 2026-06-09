@@ -8,8 +8,10 @@ const nextConfig = {
       { protocol: 'https', hostname: 'cafeqr.in' },
     ],
   },
-  // Allow firebase-admin on server side only
-  serverExternalPackages: ['firebase-admin'],
+  // Next 14 compatible key (serverExternalPackages is Next 15+)
+  experimental: {
+    serverComponentsExternalPackages: ['firebase-admin'],
+  },
 };
 
 export default nextConfig;

@@ -2,6 +2,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { FiArrowLeft, FiMapPin, FiUser, FiPhone, FiCreditCard, FiCheck, FiMail } from 'react-icons/fi';
+import { placeOrder as apiPlaceOrder } from '@/lib/apiClient';
 
 // ── CHANGES FROM PREVIOUS VERSION ────────────────────────────────────────────
 // 1. OTP flow removed from Step 1 entirely (auth now handled at app/page.jsx).
@@ -19,6 +20,7 @@ function CheckoutPageInner() {
   const router       = useRouter();
   const restaurantId = searchParams.get('r');
   const orderType    = searchParams.get('t') || 'DELIVERY';
+  const orgId        = searchParams.get('orgId') || searchParams.get('branchId') || '';
 
   // Steps: 1=contact, 2=address, 3=payment+confirm
   const [step, setStep]             = useState(1);
@@ -33,6 +35,127 @@ function CheckoutPageInner() {
 
   // Step 2 — address
   const [address, setAddress] = useState({ line1: '', area: '', city: 'Thrissur', pincode: '' });
+  const [latitude, setLatitude] = useState(10.528392);
+  const [longitude, setLongitude] = useState(76.213928);
+  const [mapLoaded, setMapLoaded] = useState(false);
+
+  // Load Leaflet resources dynamically
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.L) {
+      setMapLoaded(true);
+      return;
+    }
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.onload = () => setMapLoaded(true);
+    document.head.appendChild(script);
+  }, []);
+
+  // Initialize Map
+  useEffect(() => {
+    if (!mapLoaded || step !== 2 || orderType === 'TAKEAWAY') return;
+
+    const L = window.L;
+    if (!L) return;
+
+    // Detect browser coordinates first
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setLatitude(lat);
+          setLongitude(lng);
+          initMap(lat, lng);
+        },
+        () => {
+          initMap(10.528392, 76.213928);
+        }
+      );
+    } else {
+      initMap(10.528392, 76.213928);
+    }
+
+    let mapInstance = null;
+    let markerInstance = null;
+
+    function initMap(lat, lng) {
+      const container = document.getElementById('map-picker');
+      if (!container) return;
+
+      if (container._leaflet_id) {
+        return;
+      }
+
+      mapInstance = L.map('map-picker').setView([lat, lng], 15);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(mapInstance);
+
+      const redIcon = L.icon({
+        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+      });
+
+      markerInstance = L.marker([lat, lng], { draggable: true, icon: redIcon }).addTo(mapInstance);
+
+      const reverseGeocode = async (lt, lg) => {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lt}&lon=${lg}`);
+          if (res.ok) {
+            const data = await res.json();
+            const addr = data.address;
+            const road = addr.road || '';
+            const sub = addr.suburb || addr.neighbourhood || '';
+            const area = addr.suburb || addr.village || addr.town || addr.county || '';
+            const pincode = addr.postcode || '';
+            
+            setAddress(prev => ({
+              ...prev,
+              area: road ? `${road}, ${area}` : (sub ? `${sub}, ${area}` : area),
+              pincode: pincode.substring(0, 6)
+            }));
+          }
+        } catch (err) {
+          console.warn('Geocoding failed:', err);
+        }
+      };
+
+      markerInstance.on('dragend', () => {
+        const position = markerInstance.getLatLng();
+        setLatitude(position.lat);
+        setLongitude(position.lng);
+        reverseGeocode(position.lat, position.lng);
+      });
+
+      mapInstance.on('click', (e) => {
+        const position = e.latlng;
+        markerInstance.setLatLng(position);
+        setLatitude(position.lat);
+        setLongitude(position.lng);
+        reverseGeocode(position.lat, position.lng);
+      });
+
+      reverseGeocode(lat, lng);
+    }
+
+    return () => {
+      if (mapInstance) {
+        mapInstance.remove();
+      }
+    };
+  }, [mapLoaded, step, orderType]);
 
   // Step 3 — payment (COD only)
   const [payment, setPayment] = useState('COD');
@@ -85,39 +208,39 @@ function CheckoutPageInner() {
   };
 
   // ── Place order ─────────────────────────────────────────────────────────────
-  const placeOrder = async () => {
+  const handlePlaceOrder = async () => {
     setPlacing(true);
     try {
+      const deliveryAddressStr = orderType === 'DELIVERY'
+        ? `${address.line1}, ${address.area}, ${address.city} - ${address.pincode}`
+        : 'Takeaway Pickup';
+
       const payload = {
-        restaurantId,
-        orderType,
-        customer: { name, phone, email },
-        address: orderType === 'DELIVERY' ? address : null,
-        items: cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty })),
-        payment,
-        total: grandTotal,
+        clientId: restaurantId,
+        orgId: orgId || null,
+        customerEmail: email,
+        customerName: name,
+        customerPhone: phone,
+        fulfillmentType: orderType,
+        deliveryAddress: deliveryAddressStr,
+        note: `Payment: ${payment}`,
+        items: cart.map(i => ({ productId: i.id, quantity: i.qty })),
+        latitude: orderType === 'DELIVERY' ? latitude : null,
+        longitude: orderType === 'DELIVERY' ? longitude : null,
       };
 
       let orderId;
       try {
-        const res = await fetch(`${API_BASE}/orders`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(10000),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          orderId = data.orderId || data.id || data.order_id;
-        } else {
-          throw new Error('Backend error');
-        }
-      } catch {
-        orderId = 'ORD-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+        const res = await apiPlaceOrder(payload);
+        const data = res.data?.data || res.data;
+        orderId = data.orderId || data.id;
+      } catch (err) {
+        console.error('Failed to place order via backend:', err);
+        orderId = 'DEL-' + Math.random().toString(36).slice(2, 8).toUpperCase();
       }
 
       try { sessionStorage.removeItem(`cart_${restaurantId}`); } catch {}
-      router.push(`/track?id=${orderId}&r=${restaurantId}`);
+      router.push(`/track?id=${orderId}&r=${restaurantId}${orgId ? `&orgId=${orgId}` : ''}`);
     } finally {
       setPlacing(false);
     }
@@ -346,6 +469,14 @@ function CheckoutPageInner() {
                     {errors.pincode && <p className="text-xs text-red-500 mt-1">{errors.pincode}</p>}
                   </div>
                 </div>
+                {/* Leaflet Map Picker */}
+                {mapLoaded && (
+                  <div className="space-y-2 mt-4">
+                    <label className="text-xs font-semibold text-stone-500 uppercase tracking-wide">Pin Your Location on Map</label>
+                    <div id="map-picker" className="h-60 w-full rounded-xl border border-stone-200 overflow-hidden z-0" />
+                    <p className="text-[10px] text-stone-400">Drag the red marker or click on the map to pin your exact delivery location.</p>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -392,7 +523,7 @@ function CheckoutPageInner() {
           </button>
         ) : (
           <button
-            onClick={placeOrder}
+            onClick={handlePlaceOrder}
             disabled={placing}
             className="w-full bg-brand-orange hover:bg-orange-600 disabled:opacity-70 text-white font-semibold py-4 rounded-xl transition-colors flex items-center justify-center gap-2"
           >

@@ -5,6 +5,7 @@ import { FiSearch, FiArrowLeft, FiStar, FiClock, FiMapPin, FiShoppingBag } from 
 import MenuItemCard from '@/components/MenuItemCard';
 import CartDrawer from '@/components/CartDrawer';
 import FloatingCartBar from '@/components/FloatingCartBar';
+import { fetchDeliverySettings, fetchMenu } from '@/lib/apiClient';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://cafe-qr-backend.onrender.com/api';
 
@@ -38,6 +39,7 @@ function OrderPageInner() {
   const router          = useRouter();
   const restaurantId    = searchParams.get('r');
   const orderType       = searchParams.get('t') || 'DELIVERY';
+  const orgId           = searchParams.get('orgId') || searchParams.get('branchId') || '';
 
   const [restaurant, setRestaurant]         = useState(null);
   const [menu, setMenu]                     = useState([]);
@@ -74,27 +76,37 @@ function OrderPageInner() {
 
     const fetchData = async () => {
       try {
-        // Try real backend first
+        // Try real backend settings and menu calls via apiClient
         const [rRes, mRes] = await Promise.all([
-          fetch(`${API_BASE}/restaurants/${restaurantId}`, { signal: AbortSignal.timeout(6000) }),
-          fetch(`${API_BASE}/restaurants/${restaurantId}/menu?type=${orderType}`, { signal: AbortSignal.timeout(6000) }),
+          fetchDeliverySettings(restaurantId, orgId),
+          fetchMenu(restaurantId, orgId),
         ]);
 
-        if (!rRes.ok || !mRes.ok) throw new Error('Backend error');
+        const rData = rRes.data?.data || rRes.data;
+        const mData = mRes.data?.data || mRes.data;
 
-        const rData = await rRes.json();
-        const mData = await mRes.json();
+        // map backend keys to frontend expected keys
+        const formattedRestaurant = {
+          name: rData.restaurantName || rData.name || 'Our Restaurant',
+          tagline: rData.tagline || 'Delivery & Takeaway',
+          address: rData.address || '',
+          brandColor: rData.brandColor || '#f97316',
+          logoUrl: rData.logoUrl || '',
+          rating: rData.rating || 4.5,
+          delivery_time: rData.estimatedDeliveryMinutes ? `${rData.estimatedDeliveryMinutes} min` : '40 min',
+          min_order: rData.minOrderAmount || 0,
+        };
 
         const items  = Array.isArray(mData) ? mData : (mData.items || mData.products || []);
         const cats   = [...new Set(items.map(i => i.category || i.categoryName || 'Other'))];
 
-        setRestaurant(rData);
+        setRestaurant(formattedRestaurant);
         setMenu(items);
         setCategories(cats);
         setActiveCategory(cats[0] || null);
-      } catch {
+      } catch (err) {
         // Fall back to mock data gracefully
-        console.warn('[CafeQR] Backend unreachable — using mock data');
+        console.warn('[CafeQR] Backend unreachable — using mock data', err);
         const cats = [...new Set(MOCK_MENU.map(i => i.category))];
         setRestaurant(MOCK_RESTAURANT);
         setMenu(MOCK_MENU);
@@ -106,7 +118,7 @@ function OrderPageInner() {
     };
 
     fetchData();
-  }, [restaurantId, orderType, router]);
+  }, [restaurantId, orderType, orgId, router]);
 
   // ── Cart helpers ─────────────────────────────────────────────────
   const addItem = (item) => setCart(prev => {
@@ -325,7 +337,7 @@ function OrderPageInner() {
           setCartOpen(false);
           // Pass cart via sessionStorage so checkout page can read it
           try { sessionStorage.setItem(`cart_${restaurantId}`, JSON.stringify(cart)); } catch {}
-          router.push(`/checkout?r=${restaurantId}&t=${orderType}`);
+          router.push(`/checkout?r=${restaurantId}&t=${orderType}${orgId ? `&orgId=${orgId}` : ''}`);
         }}
       />
     </div>

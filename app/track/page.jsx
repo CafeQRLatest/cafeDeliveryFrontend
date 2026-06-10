@@ -2,8 +2,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { FiCheck, FiClock, FiPackage, FiTruck, FiHome } from 'react-icons/fi';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://cafe-qr-backend.onrender.com/api';
+import { getOrderStatus } from '@/lib/apiClient';
 
 const ORDER_STEPS = [
   { key: 'PLACED',    label: 'Order Placed',     icon: FiCheck,   desc: 'Your order has been received' },
@@ -19,34 +18,76 @@ const TAKEAWAY_STEPS = [
   { key: 'READY',     label: 'Ready for Pickup', icon: FiClock,  desc: 'Your order is ready! Head over to pick up.' },
 ];
 
-const STATUS_INDEX = { PLACED: 0, CONFIRMED: 1, READY: 2, OUT: 3, DELIVERED: 4 };
+const getStepperStatusIndex = (backendStatus) => {
+  switch (String(backendStatus).toUpperCase()) {
+    case 'DRAFT':
+    case 'PLACED':
+      return 0;
+    case 'CONFIRMED':
+    case 'IN_PROGRESS':
+      return 1;
+    case 'READY':
+      return 2;
+    case 'BILLED':
+    case 'OUT':
+    case 'OUT_FOR_DELIVERY':
+      return 3;
+    case 'COMPLETED':
+    case 'DELIVERED':
+      return 4;
+    default:
+      return 0;
+  }
+};
 
 function TrackPageInner() {
   const searchParams = useSearchParams();
   const router       = useRouter();
   const orderId      = searchParams.get('id');
   const restaurantId = searchParams.get('r');
+  const orgId        = searchParams.get('orgId') || searchParams.get('branchId') || '';
 
   const [order, setOrder]       = useState(null);
   const [status, setStatus]     = useState('PLACED');
   const [loading, setLoading]   = useState(true);
   const [eta, setEta]           = useState('25-35 min');
+  const [mapLoaded, setMapLoaded] = useState(false);
 
+  // Load Leaflet resources dynamically
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.L) {
+      setMapLoaded(true);
+      return;
+    }
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.onload = () => setMapLoaded(true);
+    document.head.appendChild(script);
+  }, []);
+
+  // Fetch order status
   useEffect(() => {
     if (!orderId) { router.replace('/'); return; }
 
     const fetchStatus = async () => {
       try {
-        const res = await fetch(`${API_BASE}/orders/${orderId}`, { signal: AbortSignal.timeout(6000) });
-        if (res.ok) {
-          const data = await res.json();
+        const res = await getOrderStatus(orderId, restaurantId);
+        const data = res.data?.data || res.data;
+        if (data) {
           setOrder(data);
           setStatus(data.status || 'PLACED');
           if (data.eta) setEta(data.eta);
         } else {
           throw new Error();
         }
-      } catch {
+      } catch (err) {
+        console.warn('Failed to fetch order status from API:', err);
         // Demo mode — simulate order progression
         setOrder({ id: orderId, status: 'PLACED', type: 'DELIVERY' });
         setStatus('PLACED');
@@ -60,12 +101,67 @@ function TrackPageInner() {
     // Poll every 15 seconds
     const interval = setInterval(fetchStatus, 15000);
     return () => clearInterval(interval);
-  }, [orderId, router]);
+  }, [orderId, restaurantId, router]);
+
+  // Initialize Route Map
+  useEffect(() => {
+    if (!mapLoaded || !order || typeof window === 'undefined' || !window.L || orderType !== 'DELIVERY') return;
+
+    const L = window.L;
+    const container = document.getElementById('tracking-map');
+    if (!container || container._leaflet_id) return;
+
+    const restLat = 10.528392;
+    const restLng = 76.213928;
+    const custLat = order.latitude ? Number(order.latitude) : 10.532000;
+    const custLng = order.longitude ? Number(order.longitude) : 76.222000;
+
+    const mapInstance = L.map('tracking-map').setView([restLat, restLng], 14);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(mapInstance);
+
+    const restIcon = L.icon({
+      iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
+      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41],
+      popupAnchor: [1, -34],
+      shadowSize: [41, 41]
+    });
+
+    const custIcon = L.icon({
+      iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41],
+      popupAnchor: [1, -34],
+      shadowSize: [41, 41]
+    });
+
+    L.marker([restLat, restLng], { icon: restIcon }).addTo(mapInstance).bindPopup('Restaurant');
+    L.marker([custLat, custLng], { icon: custIcon }).addTo(mapInstance).bindPopup('Delivery Location');
+
+    L.polyline([[restLat, restLng], [custLat, custLng]], {
+      color: '#EA580C',
+      weight: 4,
+      opacity: 0.7,
+      dashArray: '8, 8'
+    }).addTo(mapInstance);
+
+    const bounds = L.latLngBounds([[restLat, restLng], [custLat, custLng]]);
+    mapInstance.fitBounds(bounds, { padding: [40, 40] });
+
+    return () => {
+      mapInstance.remove();
+    };
+  }, [mapLoaded, order]);
 
   const orderType = order?.type || order?.orderType || 'DELIVERY';
   const steps     = orderType === 'TAKEAWAY' ? TAKEAWAY_STEPS : ORDER_STEPS;
-  const stepIdx   = STATUS_INDEX[status] ?? 0;
-  const isDelivered = status === 'DELIVERED' || (orderType === 'TAKEAWAY' && status === 'READY');
+  const stepIdx   = getStepperStatusIndex(status);
+  const isDelivered = status === 'DELIVERED' || status === 'COMPLETED' || (orderType === 'TAKEAWAY' && status === 'READY');
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-stone-50">
@@ -147,6 +243,14 @@ function TrackPageInner() {
         </div>
       </div>
 
+      {/* Visual Map Container */}
+      {orderType === 'DELIVERY' && mapLoaded && (
+        <div className="bg-white mx-4 mt-3 rounded-2xl p-5">
+          <h2 className="text-sm font-semibold text-stone-600 mb-3">Delivery Route</h2>
+          <div id="tracking-map" className="h-64 w-full rounded-xl border border-stone-200 overflow-hidden z-0" />
+        </div>
+      )}
+
       {/* Order summary */}
       {order?.items && (
         <div className="bg-white mx-4 mt-3 rounded-2xl p-5">
@@ -169,7 +273,7 @@ function TrackPageInner() {
       <div className="px-4 mt-4 pb-8 space-y-2">
         {restaurantId && (
           <button
-            onClick={() => router.push(`/order?r=${restaurantId}&t=${orderType}`)}
+            onClick={() => router.push(`/order?r=${restaurantId}&t=${orderType}${orgId ? `&orgId=${orgId}` : ''}`)}
             className="w-full bg-brand-orange text-white font-semibold py-4 rounded-xl"
           >
             Order Again

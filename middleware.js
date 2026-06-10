@@ -29,10 +29,12 @@ export async function middleware(req) {
     const { searchParams } = req.nextUrl;
     const r = searchParams.get('r') || '';
     const t = searchParams.get('t') || 'DELIVERY';
+    const orgId = searchParams.get('orgId') || searchParams.get('branchId') || '';
 
     const loginUrl = new URL('/', req.url);
     if (r) loginUrl.searchParams.set('r', r);
     loginUrl.searchParams.set('t', t);
+    if (orgId) loginUrl.searchParams.set('orgId', orgId);
 
     return NextResponse.redirect(loginUrl);
   }

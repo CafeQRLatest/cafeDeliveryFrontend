@@ -13,7 +13,7 @@ import { NextResponse } from 'next/server';
 import { getDeliverySession } from '@/lib/auth';
 
 export async function GET(req) {
-  const session = getDeliverySession(req);
+  const session = await getDeliverySession(req);
 
   if (!session) {
     return NextResponse.json({ error: 'No active session' }, { status: 401 });

@@ -22,6 +22,7 @@ function HomeInner() {
   const router       = useRouter();
   const r = searchParams.get('r');
   const t = searchParams.get('t') || 'DELIVERY';
+  const orgId = searchParams.get('orgId') || searchParams.get('branchId') || '';
 
   // ── Session check ──────────────────────────────────────────────────────────
   // On mount, ping a lightweight session-check endpoint.
@@ -34,13 +35,13 @@ function HomeInner() {
       .then(res => {
         if (res.ok) {
           // Already logged in — go straight to menu
-          router.replace(`/order?r=${r}&t=${t}`);
+          router.replace(`/order?r=${r}&t=${t}${orgId ? `&orgId=${orgId}` : ''}`);
         } else {
           setSessionChecked(true);
         }
       })
       .catch(() => setSessionChecked(true));
-  }, [r, t, router]);
+  }, [r, t, orgId, router]);
 
   // ── OTP state ──────────────────────────────────────────────────────────────
   const [email,       setEmail]       = useState('');
@@ -94,7 +95,7 @@ function HomeInner() {
       if (!res.ok) { setError(data.error || 'Incorrect OTP. Please try again.'); return; }
       // Cookie is now set by the server — redirect to menu
       setOtpVerified(true);
-      setTimeout(() => router.replace(`/order?r=${r}&t=${t}`), 600);
+      setTimeout(() => router.replace(`/order?r=${r}&t=${t}${orgId ? `&orgId=${orgId}` : ''}`), 600);
     } catch {
       setError('Verification failed. Please try again.');
     } finally {

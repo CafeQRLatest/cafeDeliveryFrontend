@@ -17,18 +17,18 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://cafe-qr-backen
 
 function CheckoutPageInner() {
   const searchParams = useSearchParams();
-  const router       = useRouter();
+  const router = useRouter();
   const restaurantId = searchParams.get('r');
-  const orderType    = searchParams.get('t') || 'DELIVERY';
-  const orgId        = searchParams.get('orgId') || searchParams.get('branchId') || '';
+  const orderType = searchParams.get('t') || 'DELIVERY';
+  const orgId = searchParams.get('orgId') || searchParams.get('branchId') || '';
 
   // Steps: 1=contact, 2=address, 3=payment+confirm
-  const [step, setStep]             = useState(1);
-  const [cart, setCart]             = useState([]);
+  const [step, setStep] = useState(1);
+  const [cart, setCart] = useState([]);
   const [restaurant, setRestaurant] = useState(null);
 
   // Step 1 — contact
-  const [name,  setName]  = useState('');
+  const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');        // pre-filled from session, read-only
   const [sessionLoading, setSessionLoading] = useState(true);
@@ -120,7 +120,7 @@ function CheckoutPageInner() {
             const sub = addr.suburb || addr.neighbourhood || '';
             const area = addr.suburb || addr.village || addr.town || addr.county || '';
             const pincode = addr.postcode || '';
-            
+
             setAddress(prev => ({
               ...prev,
               area: road ? `${road}, ${area}` : (sub ? `${sub}, ${area}` : area),
@@ -160,18 +160,18 @@ function CheckoutPageInner() {
   // Step 3 — payment (COD only)
   const [payment, setPayment] = useState('COD');
   const [placing, setPlacing] = useState(false);
-  const [errors,  setErrors]  = useState({});
+  const [errors, setErrors] = useState({});
 
   // ── Load cart + restaurant from sessionStorage ──────────────────────────────
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(`cart_${restaurantId}`);
       if (saved) setCart(JSON.parse(saved));
-    } catch {}
+    } catch { }
     try {
       const r = sessionStorage.getItem(`restaurant_${restaurantId}`);
       if (r) setRestaurant(JSON.parse(r));
-    } catch {}
+    } catch { }
   }, [restaurantId]);
 
   // ── Pre-fill email from delivery_session cookie (via /api/auth/session) ─────
@@ -179,7 +179,7 @@ function CheckoutPageInner() {
     fetch('/api/auth/session')
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data?.email) setEmail(data.email); })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setSessionLoading(false));
   }, []);
 
@@ -201,14 +201,14 @@ function CheckoutPageInner() {
     const qty = Number(i.qty || 1);
     const faceUnit = Number(i.price || 0);
     const isPackaged = !!i.isPackagedGood;
-    const rate = gstEnabled 
-      ? (isPackaged 
-          ? (i.taxRate !== undefined && i.taxRate !== null && i.taxRate !== '' ? Number(i.taxRate) : defaultTaxRate) 
-          : defaultTaxRate) 
+    const rate = gstEnabled
+      ? (isPackaged
+        ? (i.taxRate !== undefined && i.taxRate !== null && i.taxRate !== '' ? Number(i.taxRate) : defaultTaxRate)
+        : defaultTaxRate)
       : 0;
 
     const isInclusive = gstEnabled && (isPackaged || pricesIncludeTax);
-    
+
     let baseUnit;
     let lineTotal;
     let taxable;
@@ -231,9 +231,8 @@ function CheckoutPageInner() {
     subtotal += lineTotal;
   });
 
-  const cartCount   = cart.reduce((s, i) => s + i.qty, 0);
-  const deliveryFee = orderType === 'TAKEAWAY' ? 0 : ((totalTaxableAmount + (pricesIncludeTax ? totalTaxAmount : 0)) >= 500 ? 0 : 40);
-  const grandTotal  = totalTaxableAmount + totalTaxAmount + deliveryFee;
+  const cartCount = cart.reduce((s, i) => s + i.qty, 0);
+  const grandTotal = totalTaxableAmount + totalTaxAmount;
 
   // ── Validation ──────────────────────────────────────────────────────────────
   const validateStep1 = () => {
@@ -247,8 +246,8 @@ function CheckoutPageInner() {
   const validateStep2 = () => {
     if (orderType === 'TAKEAWAY') return true;
     const e = {};
-    if (!address.line1.trim())   e.line1   = 'House / flat is required';
-    if (!address.area.trim())    e.area    = 'Area / locality is required';
+    if (!address.line1.trim()) e.line1 = 'House / flat is required';
+    if (!address.area.trim()) e.area = 'Area / locality is required';
     if (!address.pincode.trim()) e.pincode = 'Pincode is required';
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -286,7 +285,7 @@ function CheckoutPageInner() {
         orderId = 'DEL-' + Math.random().toString(36).slice(2, 8).toUpperCase();
       }
 
-      try { sessionStorage.removeItem(`cart_${restaurantId}`); } catch {}
+      try { sessionStorage.removeItem(`cart_${restaurantId}`); } catch { }
       router.push(`/track?id=${orderId}&r=${restaurantId}${orgId ? `&orgId=${orgId}` : ''}`);
     } finally {
       setPlacing(false);
@@ -329,21 +328,18 @@ function CheckoutPageInner() {
           {STEPS.map((s, idx) => (
             <div key={s.num} className="flex items-center flex-1">
               <div className="flex flex-col items-center">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${
-                  step > s.num  ? 'bg-green-500 border-green-500 text-white' :
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${step > s.num ? 'bg-green-500 border-green-500 text-white' :
                   step === s.num ? 'bg-brand-orange border-brand-orange text-white' :
-                                   'bg-white border-stone-200 text-stone-400'
-                }`}>
+                    'bg-white border-stone-200 text-stone-400'
+                  }`}>
                   {step > s.num ? <FiCheck size={12} /> : s.num}
                 </div>
-                <span className={`text-xs mt-0.5 ${
-                  step >= s.num ? 'text-stone-600 font-medium' : 'text-stone-300'
-                }`}>{s.label}</span>
+                <span className={`text-xs mt-0.5 ${step >= s.num ? 'text-stone-600 font-medium' : 'text-stone-300'
+                  }`}>{s.label}</span>
               </div>
               {idx < STEPS.length - 1 && (
-                <div className={`flex-1 h-0.5 mb-3 mx-1 ${
-                  step > s.num ? 'bg-brand-orange' : 'bg-stone-200'
-                }`} />
+                <div className={`flex-1 h-0.5 mb-3 mx-1 ${step > s.num ? 'bg-brand-orange' : 'bg-stone-200'
+                  }`} />
               )}
             </div>
           ))}
@@ -375,14 +371,7 @@ function CheckoutPageInner() {
                 <span>{restaurant?.taxLabelGlobal || 'GST'}</span><span>₹{totalTaxAmount.toFixed(2)}</span>
               </div>
             )}
-            {orderType === 'DELIVERY' && (
-              <div className="flex justify-between text-sm text-stone-500">
-                <span>Delivery fee</span>
-                <span className={deliveryFee === 0 ? 'text-green-600 font-medium' : ''}>
-                  {deliveryFee === 0 ? 'FREE' : `₹${deliveryFee}`}
-                </span>
-              </div>
-            )}
+
             <div className="flex justify-between text-base font-bold text-stone-900 pt-1">
               <span>Total</span><span>₹{grandTotal.toFixed(2)}</span>
             </div>
@@ -401,9 +390,8 @@ function CheckoutPageInner() {
             <div>
               <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Full Name</label>
               <input
-                className={`w-full mt-1.5 border rounded-xl px-4 py-3 text-sm outline-none transition-colors ${
-                  errors.name ? 'border-red-400 bg-red-50' : 'border-stone-200 focus:border-brand-orange'
-                }`}
+                className={`w-full mt-1.5 border rounded-xl px-4 py-3 text-sm outline-none transition-colors ${errors.name ? 'border-red-400 bg-red-50' : 'border-stone-200 focus:border-brand-orange'
+                  }`}
                 placeholder="Enter your full name"
                 value={name}
                 onChange={e => { setName(e.target.value); setErrors(p => ({ ...p, name: '' })); }}
@@ -417,9 +405,8 @@ function CheckoutPageInner() {
               <div className="flex gap-2 mt-1.5">
                 <div className="border border-stone-200 rounded-xl px-3 py-3 text-sm text-stone-400 bg-stone-50">+91</div>
                 <input
-                  className={`flex-1 border rounded-xl px-4 py-3 text-sm outline-none transition-colors ${
-                    errors.phone ? 'border-red-400 bg-red-50' : 'border-stone-200 focus:border-brand-orange'
-                  }`}
+                  className={`flex-1 border rounded-xl px-4 py-3 text-sm outline-none transition-colors ${errors.phone ? 'border-red-400 bg-red-50' : 'border-stone-200 focus:border-brand-orange'
+                    }`}
                   placeholder="10-digit number"
                   value={phone}
                   onChange={e => { setPhone(e.target.value); setErrors(p => ({ ...p, phone: '' })); }}
@@ -480,24 +467,22 @@ function CheckoutPageInner() {
                 <div>
                   <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">House / Flat / Building</label>
                   <input
-                    className={`w-full mt-1.5 border rounded-xl px-4 py-3 text-sm outline-none transition-colors ${
-                      errors.line1 ? 'border-red-400 bg-red-50' : 'border-stone-200 focus:border-brand-orange'
-                    }`}
+                    className={`w-full mt-1.5 border rounded-xl px-4 py-3 text-sm outline-none transition-colors ${errors.line1 ? 'border-red-400 bg-red-50' : 'border-stone-200 focus:border-brand-orange'
+                      }`}
                     placeholder="Flat 4B, Rose Apartments"
                     value={address.line1}
-                    onChange={e => { setAddress(p => ({...p, line1: e.target.value})); setErrors(p => ({...p, line1: ''})); }}
+                    onChange={e => { setAddress(p => ({ ...p, line1: e.target.value })); setErrors(p => ({ ...p, line1: '' })); }}
                   />
                   {errors.line1 && <p className="text-xs text-red-500 mt-1">{errors.line1}</p>}
                 </div>
                 <div>
                   <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Area / Locality</label>
                   <input
-                    className={`w-full mt-1.5 border rounded-xl px-4 py-3 text-sm outline-none transition-colors ${
-                      errors.area ? 'border-red-400 bg-red-50' : 'border-stone-200 focus:border-brand-orange'
-                    }`}
+                    className={`w-full mt-1.5 border rounded-xl px-4 py-3 text-sm outline-none transition-colors ${errors.area ? 'border-red-400 bg-red-50' : 'border-stone-200 focus:border-brand-orange'
+                      }`}
                     placeholder="Swaraj Round, Punkunnam"
                     value={address.area}
-                    onChange={e => { setAddress(p => ({...p, area: e.target.value})); setErrors(p => ({...p, area: ''})); }}
+                    onChange={e => { setAddress(p => ({ ...p, area: e.target.value })); setErrors(p => ({ ...p, area: '' })); }}
                   />
                   {errors.area && <p className="text-xs text-red-500 mt-1">{errors.area}</p>}
                 </div>
@@ -509,12 +494,11 @@ function CheckoutPageInner() {
                   <div className="flex-1">
                     <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Pincode</label>
                     <input
-                      className={`w-full mt-1.5 border rounded-xl px-4 py-3 text-sm outline-none transition-colors ${
-                        errors.pincode ? 'border-red-400 bg-red-50' : 'border-stone-200 focus:border-brand-orange'
-                      }`}
+                      className={`w-full mt-1.5 border rounded-xl px-4 py-3 text-sm outline-none transition-colors ${errors.pincode ? 'border-red-400 bg-red-50' : 'border-stone-200 focus:border-brand-orange'
+                        }`}
                       placeholder="680001"
                       value={address.pincode}
-                      onChange={e => { setAddress(p => ({...p, pincode: e.target.value})); setErrors(p => ({...p, pincode: ''})); }}
+                      onChange={e => { setAddress(p => ({ ...p, pincode: e.target.value })); setErrors(p => ({ ...p, pincode: '' })); }}
                       maxLength={6}
                       inputMode="numeric"
                     />

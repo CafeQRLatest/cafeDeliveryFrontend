@@ -229,14 +229,20 @@ function TrackPageInner() {
         </div>
       )}
 
-      {/* Cancelled banner */}
-      {isCancelled && (
-        <div className="bg-red-500 text-white px-4 py-5 text-center">
-          <p className="text-2xl mb-1">❌</p>
-          <p className="font-bold text-lg">Order Cancelled</p>
-          <p className="text-sm opacity-80 mt-0.5">This order has been cancelled or declined.</p>
-        </div>
-      )}
+      {/* Cancelled / Declined banner */}
+      {isCancelled && (() => {
+        const desc = String(order?.description || '').toLowerCase();
+        const isDeclined = desc.includes('decline') || desc.includes('rejected');
+        return (
+          <div className="bg-red-500 text-white px-4 py-5 text-center">
+            <p className="text-2xl mb-1">❌</p>
+            <p className="font-bold text-lg">{isDeclined ? 'Order Declined' : 'Order Cancelled'}</p>
+            <p className="text-sm opacity-80 mt-0.5">
+              {isDeclined ? 'This order was declined by the restaurant.' : 'This order has been cancelled.'}
+            </p>
+          </div>
+        );
+      })()}
 
       {/* Progress stepper */}
       {!isCancelled && (
